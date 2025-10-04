@@ -24,11 +24,16 @@ def main():
     running = True
     while running:
         SCREEN.fill(BLACK)
-        for event in pygame.event.get():
+        events = pygame.event.get()
+        for event in events:
             if event.type == pygame.QUIT:
                 running = False
 
-        engine.handle_input()
+        # Handle input and check for quit signal
+        result = engine.handle_input(events)
+        if result == "quit":
+            running = False
+            
         engine.update()
         engine.render(SCREEN)
 
