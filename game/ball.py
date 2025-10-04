@@ -18,12 +18,41 @@ class Ball:
         self.x += self.velocity_x
         self.y += self.velocity_y
 
-        if self.y <= 0 or self.y + self.height >= self.screen_height:
-            self.velocity_y *= -1
+        # Bounce off top and bottom walls with position correction
+        if self.y <= 0:
+            self.y = 0
+            self.velocity_y = abs(self.velocity_y)
+        elif self.y + self.height >= self.screen_height:
+            self.y = self.screen_height - self.height
+            self.velocity_y = -abs(self.velocity_y)
 
     def check_collision(self, player, ai):
-        if self.rect().colliderect(player.rect()) or self.rect().colliderect(ai.rect()):
-            self.velocity_x *= -1
+        ball_rect = self.rect()
+        
+        # Check collision with player paddle (left side)
+        if (self.velocity_x < 0 and 
+            ball_rect.colliderect(player.rect()) and 
+            self.x > player.x + player.width // 2):
+            self.velocity_x = abs(self.velocity_x)  # Ensure ball moves right
+            # Position correction to prevent tunneling
+            self.x = player.x + player.width
+            # Add variation based on where ball hits paddle
+            hit_pos = (self.y + self.height // 2 - player.y) / player.height
+            self.velocity_y += (hit_pos - 0.5) * 3
+            
+        # Check collision with AI paddle (right side)  
+        elif (self.velocity_x > 0 and 
+              ball_rect.colliderect(ai.rect()) and 
+              self.x < ai.x + ai.width // 2):
+            self.velocity_x = -abs(self.velocity_x)  # Ensure ball moves left
+            # Position correction to prevent tunneling
+            self.x = ai.x - self.width
+            # Add variation based on where ball hits paddle
+            hit_pos = (self.y + self.height // 2 - ai.y) / ai.height
+            self.velocity_y += (hit_pos - 0.5) * 3
+            
+        # Clamp velocity_y to reasonable bounds to prevent crazy bounces
+        self.velocity_y = max(-8, min(8, self.velocity_y))
 
     def reset(self):
         self.x = self.original_x
