@@ -1,4 +1,5 @@
 import pygame
+import numpy as np
 from .paddle import Paddle
 from .ball import Ball
 
@@ -17,7 +18,7 @@ class GameEngine:
 
         self.player = Paddle(10, height // 2 - 50, self.paddle_width, self.paddle_height)
         self.ai = Paddle(width - 20, height // 2 - 50, self.paddle_width, self.paddle_height)
-        self.ball = Ball(width // 2, height // 2, 7, 7, width, height)
+        self.ball = Ball(width // 2, height // 2, 7, 7, width, height, self)
 
         self.player_score = 0
         self.ai_score = 0
@@ -38,6 +39,17 @@ class GameEngine:
         self.ai_series_wins = 0
         self.games_played = 0
         self.series_winner = None
+        
+        # Initialize sound system
+        try:
+            pygame.mixer.pre_init(frequency=22050, size=-16, channels=2, buffer=512)
+            pygame.mixer.init()
+            self.sounds_enabled = True
+            print("Sound system initialized successfully")
+            self.generate_sounds()
+        except Exception as e:
+            print(f"Sound initialization failed: {e}")
+            self.sounds_enabled = False
 
     def handle_input(self, events):
         keys = pygame.key.get_pressed()
@@ -47,9 +59,12 @@ class GameEngine:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_UP:
                         self.selected_match = (self.selected_match - 1) % len(self.match_options)
+                        self.play_sound("click")
                     elif event.key == pygame.K_DOWN:
                         self.selected_match = (self.selected_match + 1) % len(self.match_options)
+                        self.play_sound("click")
                     elif event.key == pygame.K_RETURN:
+                        self.play_sound("click")
                         self.start_game()
                     elif event.key == pygame.K_ESCAPE:
                         return "quit"
@@ -103,10 +118,12 @@ class GameEngine:
 
             if self.ball.x <= 0:
                 self.ai_score += 1
+                self.play_sound("score")
                 self.ball.reset()
                 self.check_win_condition()
             elif self.ball.x >= self.width:
                 self.player_score += 1
+                self.play_sound("score")
                 self.ball.reset()
                 self.check_win_condition()
 
@@ -243,6 +260,101 @@ class GameEngine:
         restart_text = self.small_font.render("Press 'R' to start new series or 'ESC' to quit", True, WHITE)
         restart_rect = restart_text.get_rect(center=(self.width//2, self.height//2 + 50))
         screen.blit(restart_text, restart_rect)
+    
+    def generate_sounds(self):
+        """Generate simple sound effects using numpy"""
+        try:
+            import pygame.sndarray
+            sample_rate = 22050
+            
+            print("Generating sound effects...")
+            
+            # Generate paddle hit sound (short beep at 800Hz)
+            duration = 0.15
+            frequency = 800
+            t = np.linspace(0, duration, int(sample_rate * duration), False)
+            paddle_wave = np.sin(frequency * 2 * np.pi * t) * 0.5
+            # Add slight decay
+            envelope = np.exp(-t * 8)
+            paddle_wave *= envelope
+            # Create stereo sound and ensure C-contiguous
+            paddle_sound = np.column_stack((paddle_wave, paddle_wave))
+            paddle_sound = np.ascontiguousarray((paddle_sound * 32767).astype(np.int16))
+            self.paddle_sound = pygame.sndarray.make_sound(paddle_sound)
+            print("Paddle sound generated")
+            
+            # Generate wall bounce sound (lower pitch at 300Hz)
+            frequency = 300
+            t_wall = np.linspace(0, duration, int(sample_rate * duration), False)
+            wall_wave = np.sin(frequency * 2 * np.pi * t_wall) * 0.4
+            wall_wave *= np.exp(-t_wall * 8)
+            wall_sound = np.column_stack((wall_wave, wall_wave))
+            wall_sound = np.ascontiguousarray((wall_sound * 32767).astype(np.int16))
+            self.wall_sound = pygame.sndarray.make_sound(wall_sound)
+            print("Wall bounce sound generated")
+            
+            # Generate score sound (ascending chord)
+            duration = 0.5
+            t_score = np.linspace(0, duration, int(sample_rate * duration), False)
+            # Create a chord with multiple frequencies
+            freq1, freq2 = 440, 554  # A and C# notes
+            score_wave = (np.sin(freq1 * 2 * np.pi * t_score) + 
+                         np.sin(freq2 * 2 * np.pi * t_score)) * 0.3
+            # Add envelope for smooth fade
+            envelope = np.exp(-t_score * 3)
+            score_wave *= envelope
+            score_sound = np.column_stack((score_wave, score_wave))
+            score_sound = np.ascontiguousarray((score_sound * 32767).astype(np.int16))
+            self.score_sound = pygame.sndarray.make_sound(score_sound)
+            print("Score sound generated")
+            
+            # Generate menu navigation sound (short click)
+            duration = 0.08
+            frequency = 1200
+            t_click = np.linspace(0, duration, int(sample_rate * duration), False)
+            click_wave = np.sin(frequency * 2 * np.pi * t_click) * 0.3
+            click_wave *= np.exp(-t_click * 15)  # Quick decay
+            click_sound = np.column_stack((click_wave, click_wave))
+            click_sound = np.ascontiguousarray((click_sound * 32767).astype(np.int16))
+            self.click_sound = pygame.sndarray.make_sound(click_sound)
+            print("Click sound generated")
+            
+            print("All sounds generated successfully!")
+            
+            # Set volume levels
+            self.paddle_sound.set_volume(0.7)
+            self.wall_sound.set_volume(0.5)
+            self.score_sound.set_volume(0.8)
+            self.click_sound.set_volume(0.6)
+            
+        except Exception as e:
+            print(f"Could not generate sounds: {e}")
+            import traceback
+            traceback.print_exc()
+            self.sounds_enabled = False
+    
+    def play_sound(self, sound_type):
+        """Play a sound effect"""
+        if not self.sounds_enabled:
+            print(f"Sounds disabled, cannot play {sound_type}")
+            return
+            
+        try:
+            print(f"Playing {sound_type} sound")
+            if sound_type == "paddle" and hasattr(self, 'paddle_sound'):
+                self.paddle_sound.play()
+            elif sound_type == "wall" and hasattr(self, 'wall_sound'):
+                self.wall_sound.play()
+            elif sound_type == "score" and hasattr(self, 'score_sound'):
+                self.score_sound.play()
+            elif sound_type == "click" and hasattr(self, 'click_sound'):
+                self.click_sound.play()
+            else:
+                print(f"Sound {sound_type} not found or not loaded")
+        except Exception as e:
+            print(f"Error playing sound {sound_type}: {e}")
+            import traceback
+            traceback.print_exc()
     
     def render_menu(self, screen):
         """Render the match selection menu"""
