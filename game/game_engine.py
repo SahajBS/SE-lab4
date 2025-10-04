@@ -26,35 +26,75 @@ class GameEngine:
         self.small_font = pygame.font.SysFont("Arial", 20)
         
         # Game state management
-        self.game_state = "playing"  # "playing" or "game_over"
+        self.game_state = "menu"  # "menu", "playing", "game_over", "series_over"
         self.winning_score = 5
         self.winner = None
+        self.match_options = [3, 5, 7]  # Best of 3, 5, or 7
+        self.selected_match = 1  # Index for match_options (default: 5)
+        
+        # Series tracking
+        self.series_length = 5  # Will be set when game starts
+        self.player_series_wins = 0
+        self.ai_series_wins = 0
+        self.games_played = 0
+        self.series_winner = None
 
     def handle_input(self, events):
         keys = pygame.key.get_pressed()
         
-        if self.game_state == "playing":
+        if self.game_state == "menu":
+            for event in events:
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_UP:
+                        self.selected_match = (self.selected_match - 1) % len(self.match_options)
+                    elif event.key == pygame.K_DOWN:
+                        self.selected_match = (self.selected_match + 1) % len(self.match_options)
+                    elif event.key == pygame.K_RETURN:
+                        self.start_game()
+                    elif event.key == pygame.K_ESCAPE:
+                        return "quit"
+        
+        elif self.game_state == "playing":
             if keys[pygame.K_w]:
                 self.player.move(-10, self.height)
             if keys[pygame.K_s]:
                 self.player.move(10, self.height)
+                
         elif self.game_state == "game_over":
             for event in events:
                 if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_SPACE:
+                        self.start_next_game()  # Continue to next game in series
+                    elif event.key == pygame.K_r:
+                        self.game_state = "menu"  # Return to menu for new series
+                    elif event.key == pygame.K_ESCAPE:
+                        return "quit"
+        
+        elif self.game_state == "series_over":
+            for event in events:
+                if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_r:
-                        self.restart_game()
+                        self.game_state = "menu"  # Return to menu for new series
                     elif event.key == pygame.K_ESCAPE:
                         return "quit"
         
         return None
     
-    def restart_game(self):
-        """Reset the game to initial state"""
+    def start_game(self):
+        """Start a new series with selected match type"""
+        self.winning_score = 5  # Individual game winning score
+        self.series_length = self.match_options[self.selected_match]
         self.player_score = 0
         self.ai_score = 0
         self.winner = None
+        # Reset series tracking
+        self.player_series_wins = 0
+        self.ai_series_wins = 0
+        self.games_played = 0
+        self.series_winner = None
         self.game_state = "playing"
         self.ball.reset()
+
 
     def update(self):
         if self.game_state == "playing":
@@ -76,27 +116,67 @@ class GameEngine:
         """Check if either player has won the game"""
         if self.player_score >= self.winning_score:
             self.winner = "Player"
+            self.record_series_score("Player")
             self.game_state = "game_over"
         elif self.ai_score >= self.winning_score:
             self.winner = "AI"
+            self.record_series_score("AI")
             self.game_state = "game_over"
+    
+    def record_series_score(self, game_winner):
+        """Record the winner of the current game and check for series completion"""
+        self.games_played += 1
+        
+        if game_winner == "Player":
+            self.player_series_wins += 1
+        elif game_winner == "AI":
+            self.ai_series_wins += 1
+        
+        # Check if series is complete (need to win majority of games)
+        games_to_win = (self.series_length + 1) // 2  # e.g., 2 for best of 3, 3 for best of 5
+        
+        if self.player_series_wins >= games_to_win:
+            self.series_winner = "Player"
+            self.game_state = "series_over"
+        elif self.ai_series_wins >= games_to_win:
+            self.series_winner = "AI"
+            self.game_state = "series_over"
+    
+    def start_next_game(self):
+        """Start the next game in the current series"""
+        self.player_score = 0
+        self.ai_score = 0
+        self.winner = None
+        self.game_state = "playing"
+        self.ball.reset()
 
     def render(self, screen):
-        if self.game_state == "playing":
+        if self.game_state == "menu":
+            self.render_menu(screen)
+            
+        elif self.game_state == "playing":
             # Draw paddles and ball
             pygame.draw.rect(screen, WHITE, self.player.rect())
             pygame.draw.rect(screen, WHITE, self.ai.rect())
             pygame.draw.ellipse(screen, WHITE, self.ball.rect())
             pygame.draw.aaline(screen, WHITE, (self.width//2, 0), (self.width//2, self.height))
 
-            # Draw score
+            # Draw current game score
             player_text = self.font.render(str(self.player_score), True, WHITE)
             ai_text = self.font.render(str(self.ai_score), True, WHITE)
             screen.blit(player_text, (self.width//4, 20))
             screen.blit(ai_text, (self.width * 3//4, 20))
+            
+            # Draw series score
+            series_text = self.small_font.render(f"Series: P{self.player_series_wins} - {self.ai_series_wins}A | Game {self.games_played + 1}/{self.series_length}", True, WHITE)
+            series_rect = series_text.get_rect(center=(self.width//2, 60))
+            screen.blit(series_text, series_rect)
         
         elif self.game_state == "game_over":
             self.render_game_over(screen)
+        
+        elif self.game_state == "series_over":
+            self.render_series_over(screen)
     
     def render_game_over(self, screen):
         """Render the game over screen"""
@@ -108,16 +188,94 @@ class GameEngine:
         
         # Winner announcement
         winner_color = GREEN if self.winner == "Player" else RED
-        winner_text = self.big_font.render(f"{self.winner} Wins!", True, winner_color)
+        winner_text = self.big_font.render(f"{self.winner} Wins Game!", True, winner_color)
+        winner_rect = winner_text.get_rect(center=(self.width//2, self.height//2 - 100))
+        screen.blit(winner_text, winner_rect)
+        
+        # Game score
+        score_text = self.font.render(f"Game Score: {self.player_score} - {self.ai_score}", True, WHITE)
+        score_rect = score_text.get_rect(center=(self.width//2, self.height//2 - 60))
+        screen.blit(score_text, score_rect)
+        
+        # Series progress
+        series_text = self.font.render(f"Series Score: Player {self.player_series_wins} - {self.ai_series_wins} AI", True, WHITE)
+        series_rect = series_text.get_rect(center=(self.width//2, self.height//2 - 20))
+        screen.blit(series_text, series_rect)
+        
+        # Game progress
+        progress_text = self.small_font.render(f"Game {self.games_played} of {self.series_length} (Best of {self.series_length})", True, WHITE)
+        progress_rect = progress_text.get_rect(center=(self.width//2, self.height//2 + 10))
+        screen.blit(progress_text, progress_rect)
+        
+        # Instructions
+        if self.series_winner is None:  # Series not over yet
+            next_text = self.small_font.render("Press SPACE for next game, 'R' for new series, or 'ESC' to quit", True, WHITE)
+        else:
+            next_text = self.small_font.render("Press 'R' for new series or 'ESC' to quit", True, WHITE)
+        next_rect = next_text.get_rect(center=(self.width//2, self.height//2 + 50))
+        screen.blit(next_text, next_rect)
+    
+    def render_series_over(self, screen):
+        """Render the series completion screen"""
+        # Semi-transparent overlay
+        overlay = pygame.Surface((self.width, self.height))
+        overlay.set_alpha(128)
+        overlay.fill((0, 0, 0))
+        screen.blit(overlay, (0, 0))
+        
+        # Series winner announcement
+        winner_color = GREEN if self.series_winner == "Player" else RED
+        winner_text = self.big_font.render(f"{self.series_winner} Wins Series!", True, winner_color)
         winner_rect = winner_text.get_rect(center=(self.width//2, self.height//2 - 80))
         screen.blit(winner_text, winner_rect)
         
-        # Final score
-        score_text = self.font.render(f"Final Score: {self.player_score} - {self.ai_score}", True, WHITE)
-        score_rect = score_text.get_rect(center=(self.width//2, self.height//2 - 20))
-        screen.blit(score_text, score_rect)
+        # Final series score
+        series_text = self.font.render(f"Final Series Score: Player {self.player_series_wins} - {self.ai_series_wins} AI", True, WHITE)
+        series_rect = series_text.get_rect(center=(self.width//2, self.height//2 - 20))
+        screen.blit(series_text, series_rect)
+        
+        # Series type
+        series_type_text = self.small_font.render(f"Best of {self.series_length} Series Complete", True, WHITE)
+        series_type_rect = series_type_text.get_rect(center=(self.width//2, self.height//2 + 10))
+        screen.blit(series_type_text, series_type_rect)
         
         # Instructions
-        restart_text = self.small_font.render("Press 'R' to play again or 'ESC' to quit", True, WHITE)
-        restart_rect = restart_text.get_rect(center=(self.width//2, self.height//2 + 40))
+        restart_text = self.small_font.render("Press 'R' to start new series or 'ESC' to quit", True, WHITE)
+        restart_rect = restart_text.get_rect(center=(self.width//2, self.height//2 + 50))
         screen.blit(restart_text, restart_rect)
+    
+    def render_menu(self, screen):
+        """Render the match selection menu"""
+        # Title
+        title_text = self.big_font.render("PING PONG", True, WHITE)
+        title_rect = title_text.get_rect(center=(self.width//2, self.height//2 - 120))
+        screen.blit(title_text, title_rect)
+        
+        # Subtitle
+        subtitle_text = self.font.render("Choose Match Type:", True, WHITE)
+        subtitle_rect = subtitle_text.get_rect(center=(self.width//2, self.height//2 - 60))
+        screen.blit(subtitle_text, subtitle_rect)
+        
+        # Match options
+        for i, option in enumerate(self.match_options):
+            color = GREEN if i == self.selected_match else WHITE
+            option_text = self.font.render(f"Best of {option}", True, color)
+            option_rect = option_text.get_rect(center=(self.width//2, self.height//2 - 10 + i * 40))
+            screen.blit(option_text, option_rect)
+            
+            # Draw selection indicator
+            if i == self.selected_match:
+                pygame.draw.rect(screen, GREEN, option_rect.inflate(20, 10), 2)
+        
+        # Instructions
+        instructions = [
+            "Use UP/DOWN arrows to select",
+            "Press ENTER to start game", 
+            "Use W/S to move paddle",
+            "Press ESC to quit"
+        ]
+        
+        for i, instruction in enumerate(instructions):
+            inst_text = self.small_font.render(instruction, True, WHITE)
+            inst_rect = inst_text.get_rect(center=(self.width//2, self.height//2 + 80 + i * 25))
+            screen.blit(inst_text, inst_rect)
